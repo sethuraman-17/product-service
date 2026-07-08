@@ -50,4 +50,12 @@ pipeline {
             echo 'Pipeline execution failed!'
         }
     }
+    stage('Verify Tools') {
+    steps {
+        bat 'echo JAVA_HOME=%JAVA_HOME%'
+        bat 'java -version'
+        bat 'mvn -version'
+    }
+}
+
 }
