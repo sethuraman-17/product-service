@@ -69,86 +69,61 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                bat '''
-                @echo off
+                script {
 
-                echo ==================================
-                echo Running Containers
-                echo ==================================
-                docker ps
+                    int retries = 24
+                    boolean healthy = false
 
-                echo.
-                echo Waiting for Spring Boot to start...
-                ping 127.0.0.1 -n 20 >nul
+                    for (int i = 1; i <= retries; i++) {
 
-                echo.
-                echo ==================================
-                echo Container Logs
-                echo ==================================
-                docker logs %CONTAINER_NAME%
+                        echo "Health Check Attempt ${i}/24"
 
-                echo.
-                echo ==================================
-                echo Checking Health Endpoint
-                echo ==================================
+                        int status = bat(
+                            script: 'curl --silent --fail http://localhost:8082/actuator/health',
+                            returnStatus: true
+                        )
 
-                set COUNT=0
+                        if (status == 0) {
+                            healthy = true
+                            break
+                        }
 
-                :retry
+                        sleep(time: 5, unit: 'SECONDS')
+                    }
 
-                curl http://localhost:8082/actuator/health
+                    bat 'docker logs product-service'
+                    bat 'docker ps'
 
-                if %ERRORLEVEL% EQU 0 (
-                    echo.
-                    echo ==================================
-                    echo APPLICATION IS UP
-                    echo ==================================
-                    goto success
-                )
+                    if (!healthy) {
+                        error("Application failed to become healthy.")
+                    }
 
-                set /a COUNT+=1
-
-                if %COUNT% GEQ 12 (
-                    echo Application failed to start.
-                    exit /b 1
-                )
-
-                echo Waiting 5 seconds...
-                ping 127.0.0.1 -n 6 >nul
-
-                goto retry
-
-                :success
-
-                echo.
-                echo ==================================
-                echo Swagger
-                echo ==================================
-                curl http://localhost:8082/swagger-ui/index.html
-
-                exit /b 0
-                '''
+                    echo "Application is UP!"
+                }
             }
         }
+
     }
 
     post {
 
         success {
-            echo '========================================'
-            echo 'BUILD SUCCESSFUL!'
-            echo '========================================'
-            echo 'Application URL : http://localhost:8082'
-            echo 'Swagger UI      : http://localhost:8082/swagger-ui/index.html'
-            echo 'Health Check    : http://localhost:8082/actuator/health'
-            echo '========================================'
+            echo "========================================="
+            echo "BUILD SUCCESSFUL!"
+            echo "========================================="
+            echo "Application : http://localhost:8082"
+            echo "Swagger UI  : http://localhost:8082/swagger-ui/index.html"
+            echo "Health      : http://localhost:8082/actuator/health"
+            echo "========================================="
         }
 
         failure {
-            echo '========================================'
-            echo 'BUILD FAILED!'
-            echo 'Check the console output above.'
-            echo '========================================'
+            echo "========================================="
+            echo "BUILD FAILED!"
+            echo "========================================="
+
+            bat 'docker ps -a'
+            bat 'docker logs product-service'
         }
 
         always {
