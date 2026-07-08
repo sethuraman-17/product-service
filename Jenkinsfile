@@ -8,6 +8,14 @@ pipeline {
 
     stages {
 
+        stage('Verify Tools') {
+            steps {
+                bat 'echo JAVA_HOME=%JAVA_HOME%'
+                bat 'java -version'
+                bat 'mvn -version'
+            }
+        }
+
         stage('Checkout') {
             steps {
                 checkout scm
