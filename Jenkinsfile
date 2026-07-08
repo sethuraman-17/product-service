@@ -66,27 +66,53 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                bat 'docker ps'
-                bat 'curl http://localhost:8082/actuator/health'
+                bat '''
+                @echo off
+
+                echo ==============================
+                echo Running Containers
+                echo ==============================
+                docker ps
+
+                echo.
+                echo Waiting 30 seconds for Spring Boot...
+                timeout /t 30 >nul
+
+                echo.
+                echo ==============================
+                echo Container Logs
+                echo ==============================
+                docker logs product-service
+
+                echo.
+                echo ==============================
+                echo Health Check
+                echo ==============================
+                curl http://localhost:8082/actuator/health
+
+                echo.
+                echo ==============================
+                echo Swagger Check
+                echo ==============================
+                curl http://localhost:8082/swagger-ui/index.html
+                '''
             }
         }
     }
 
     post {
-
         success {
             echo '======================================='
-            echo 'BUILD SUCCESSFUL'
-            echo 'Application deployed successfully!'
-            echo 'Swagger : http://localhost:8082/swagger-ui/index.html'
-            echo 'Health  : http://localhost:8082/actuator/health'
+            echo 'BUILD SUCCESSFUL!'
+            echo 'Application is running.'
+            echo 'Swagger: http://localhost:8082/swagger-ui/index.html'
+            echo 'Health : http://localhost:8082/actuator/health'
             echo '======================================='
         }
 
         failure {
             echo '======================================='
-            echo 'BUILD FAILED'
-            echo 'Check Console Output'
+            echo 'BUILD FAILED!'
             echo '======================================='
         }
 
