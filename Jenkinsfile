@@ -7,8 +7,8 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = "product-service:v1"
-        CONTAINER_NAME = "product-service"
+        IMAGE_NAME = 'product-service:v1'
+        CONTAINER_NAME = 'product-service'
     }
 
     stages {
@@ -43,6 +43,7 @@ pipeline {
         stage('Stop Old Container') {
             steps {
                 bat '''
+                @echo off
                 docker stop %CONTAINER_NAME% 2>nul
                 docker rm %CONTAINER_NAME% 2>nul
                 exit /b 0
@@ -53,6 +54,8 @@ pipeline {
         stage('Run Docker Container') {
             steps {
                 bat '''
+                @echo off
+
                 docker run -d ^
                 --name %CONTAINER_NAME% ^
                 -p 8082:8081 ^
@@ -69,51 +72,83 @@ pipeline {
                 bat '''
                 @echo off
 
-                echo ==============================
+                echo ==================================
                 echo Running Containers
-                echo ==============================
+                echo ==================================
                 docker ps
 
                 echo.
-                echo Waiting 30 seconds for Spring Boot...
-                timeout /t 30 >nul
+                echo Waiting for Spring Boot to start...
+                ping 127.0.0.1 -n 20 >nul
 
                 echo.
-                echo ==============================
+                echo ==================================
                 echo Container Logs
-                echo ==============================
-                docker logs product-service
+                echo ==================================
+                docker logs %CONTAINER_NAME%
 
                 echo.
-                echo ==============================
-                echo Health Check
-                echo ==============================
+                echo ==================================
+                echo Checking Health Endpoint
+                echo ==================================
+
+                set COUNT=0
+
+                :retry
+
                 curl http://localhost:8082/actuator/health
 
+                if %ERRORLEVEL% EQU 0 (
+                    echo.
+                    echo ==================================
+                    echo APPLICATION IS UP
+                    echo ==================================
+                    goto success
+                )
+
+                set /a COUNT+=1
+
+                if %COUNT% GEQ 12 (
+                    echo Application failed to start.
+                    exit /b 1
+                )
+
+                echo Waiting 5 seconds...
+                ping 127.0.0.1 -n 6 >nul
+
+                goto retry
+
+                :success
+
                 echo.
-                echo ==============================
-                echo Swagger Check
-                echo ==============================
+                echo ==================================
+                echo Swagger
+                echo ==================================
                 curl http://localhost:8082/swagger-ui/index.html
+
+                exit /b 0
                 '''
             }
         }
     }
 
     post {
+
         success {
-            echo '======================================='
+            echo '========================================'
             echo 'BUILD SUCCESSFUL!'
-            echo 'Application is running.'
-            echo 'Swagger: http://localhost:8082/swagger-ui/index.html'
-            echo 'Health : http://localhost:8082/actuator/health'
-            echo '======================================='
+            echo '========================================'
+            echo 'Application URL : http://localhost:8082'
+            echo 'Swagger UI      : http://localhost:8082/swagger-ui/index.html'
+            echo 'Health Check    : http://localhost:8082/actuator/health'
+            echo '========================================'
         }
 
         failure {
-            echo '======================================='
+            echo '========================================'
             echo 'BUILD FAILED!'
-            echo '======================================='
+            echo 'Check the console output above.'
+            echo '========================================'
         }
 
         always {
