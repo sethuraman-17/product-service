@@ -6,15 +6,12 @@ pipeline {
         maven 'Maven'
     }
 
-    stages {
+    environment {
+        IMAGE_NAME = "product-service:v1"
+        CONTAINER_NAME = "product-service"
+    }
 
-        stage('Verify Tools') {
-            steps {
-                bat 'echo JAVA_HOME=%JAVA_HOME%'
-                bat 'java -version'
-                bat 'mvn -version'
-            }
-        }
+    stages {
 
         stage('Checkout') {
             steps {
@@ -22,7 +19,16 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Verify Tools') {
+            steps {
+                bat 'echo JAVA_HOME=%JAVA_HOME%'
+                bat 'java -version'
+                bat 'mvn -version'
+                bat 'docker --version'
+            }
+        }
+
+        stage('Build JAR') {
             steps {
                 bat 'mvn clean package -DskipTests'
             }
@@ -30,24 +36,62 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                bat 'docker build -t product-service:v1 .'
+                bat 'docker build -t %IMAGE_NAME% .'
             }
         }
 
-        stage('Deploy') {
+        stage('Stop Old Container') {
             steps {
-                bat 'docker compose up -d'
+                bat '''
+                docker stop %CONTAINER_NAME% 2>nul
+                docker rm %CONTAINER_NAME% 2>nul
+                exit /b 0
+                '''
+            }
+        }
+
+        stage('Run Docker Container') {
+            steps {
+                bat '''
+                docker run -d ^
+                --name %CONTAINER_NAME% ^
+                -p 8082:8081 ^
+                -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5434/product_db ^
+                -e SPRING_DATASOURCE_USERNAME=postgres ^
+                -e SPRING_DATASOURCE_PASSWORD=2163 ^
+                %IMAGE_NAME%
+                '''
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                bat 'docker ps'
+                bat 'curl http://localhost:8082/actuator/health'
             }
         }
     }
 
     post {
+
         success {
-            echo 'Pipeline executed successfully!'
+            echo '======================================='
+            echo 'BUILD SUCCESSFUL'
+            echo 'Application deployed successfully!'
+            echo 'Swagger : http://localhost:8082/swagger-ui/index.html'
+            echo 'Health  : http://localhost:8082/actuator/health'
+            echo '======================================='
         }
 
         failure {
-            echo 'Pipeline execution failed!'
+            echo '======================================='
+            echo 'BUILD FAILED'
+            echo 'Check Console Output'
+            echo '======================================='
+        }
+
+        always {
+            cleanWs()
         }
     }
 }
