@@ -37,17 +37,22 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 script {
+
                     def scannerHome = tool 'SonarScanner'
 
                     withSonarQubeEnv('SonarQube') {
 
-                        bat """
-                        "${scannerHome}\\bin\\sonar-scanner.bat" ^
-                        -Dsonar.projectKey=product-service ^
-                        -Dsonar.projectName="Product Service" ^
-                        -Dsonar.sources=src ^
-                        -Dsonar.java.binaries=target/classes
-                        """
+                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+
+                            bat """
+                            "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                            -Dsonar.projectKey=product-service ^
+                            -Dsonar.projectName="Product Service" ^
+                            -Dsonar.sources=src ^
+                            -Dsonar.java.binaries=target/classes ^
+                            -Dsonar.token=%SONAR_TOKEN%
+                            """
+                        }
                     }
                 }
             }
