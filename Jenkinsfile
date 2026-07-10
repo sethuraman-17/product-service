@@ -37,11 +37,15 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 script {
+
                     def scannerHome = tool 'SonarScanner'
 
-                    withSonarQubeEnv('SonarQube') {
+                    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+
                         bat """
                         "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                        -Dsonar.host.url=http://localhost:9000 ^
+                        -Dsonar.login=%SONAR_TOKEN% ^
                         -Dsonar.projectKey=product-service ^
                         -Dsonar.projectName="Product Service" ^
                         -Dsonar.sources=src ^
@@ -128,7 +132,6 @@ pipeline {
                 }
             }
         }
-
     }
 
     post {
@@ -137,9 +140,11 @@ pipeline {
             echo "========================================="
             echo "BUILD SUCCESSFUL!"
             echo "========================================="
+            echo "SonarQube Analysis Completed"
             echo "Application : http://localhost:8082"
             echo "Swagger UI  : http://localhost:8082/swagger-ui/index.html"
             echo "Health      : http://localhost:8082/actuator/health"
+            echo "SonarQube   : http://localhost:9000/dashboard?id=product-service"
             echo "========================================="
         }
 
