@@ -37,10 +37,17 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'token', variable: 'SONAR_TOKEN')]) {
+
                     bat '''
+                    echo ================================
+                    echo Running SonarQube Analysis...
+                    echo ================================
+
                     mvn sonar:sonar ^
                     -Dsonar.host.url=http://localhost:9000 ^
-                    -Dsonar.login=%SONAR_TOKEN%
+                    -Dsonar.login=%SONAR_TOKEN% ^
+                    -Dsonar.projectKey=product-service ^
+                    -Dsonar.projectName="Product Service"
                     '''
                 }
             }
@@ -95,27 +102,27 @@ pipeline {
 
                     boolean healthy = false
 
-                    for(int i=1; i<=24; i++){
+                    for (int i = 1; i <= 24; i++) {
 
                         echo "Health Check Attempt ${i}/24"
 
-                        def status = bat(
+                        int status = bat(
                             script: 'curl --silent --fail http://localhost:8082/actuator/health',
                             returnStatus: true
                         )
 
-                        if(status == 0){
+                        if (status == 0) {
                             healthy = true
                             break
                         }
 
-                        sleep(time:5, unit:'SECONDS')
+                        sleep(time: 5, unit: 'SECONDS')
                     }
 
                     bat 'docker ps'
                     bat 'docker logs product-service'
 
-                    if(!healthy){
+                    if (!healthy) {
                         error("Application failed health check.")
                     }
 
@@ -133,6 +140,7 @@ pipeline {
             echo "==========================================="
             echo "BUILD SUCCESSFUL"
             echo "==========================================="
+            echo "SonarQube Analysis Completed"
             echo "Application : http://localhost:8082"
             echo "Swagger UI  : http://localhost:8082/swagger-ui/index.html"
             echo "Health API  : http://localhost:8082/actuator/health"
