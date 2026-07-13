@@ -7,8 +7,8 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = 'product-service:v1'
-        CONTAINER_NAME = 'product-service'
+        IMAGE_NAME = "product-service:v1"
+        CONTAINER_NAME = "product-service"
     }
 
     stages {
@@ -28,7 +28,7 @@ pipeline {
             }
         }
 
-        stage('Build JAR') {
+        stage('Build Application') {
             steps {
                 bat 'mvn clean package -DskipTests'
             }
@@ -36,22 +36,12 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                script {
-
-                    def scannerHome = tool 'SonarScanner'
-
-                    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-
-                        bat """
-                        "${scannerHome}\\bin\\sonar-scanner.bat" ^
-                        -Dsonar.host.url=http://localhost:9000 ^
-                        -Dsonar.login=%SONAR_TOKEN% ^
-                        -Dsonar.projectKey=product-service ^
-                        -Dsonar.projectName="Product Service" ^
-                        -Dsonar.sources=src ^
-                        -Dsonar.java.binaries=target/classes
-                        """
-                    }
+                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                    bat '''
+                    mvn sonar:sonar ^
+                    -Dsonar.host.url=http://localhost:9000 ^
+                    -Dsonar.login=%SONAR_TOKEN%
+                    '''
                 }
             }
         }
@@ -66,11 +56,13 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                bat 'docker build -t %IMAGE_NAME% .'
+                bat '''
+                docker build -t %IMAGE_NAME% .
+                '''
             }
         }
 
-        stage('Stop Old Container') {
+        stage('Remove Old Container') {
             steps {
                 bat '''
                 @echo off
@@ -81,7 +73,7 @@ pipeline {
             }
         }
 
-        stage('Run Docker Container') {
+        stage('Deploy Container') {
             steps {
                 bat '''
                 @echo off
@@ -101,60 +93,63 @@ pipeline {
             steps {
                 script {
 
-                    int retries = 24
                     boolean healthy = false
 
-                    for (int i = 1; i <= retries; i++) {
+                    for(int i=1; i<=24; i++){
 
                         echo "Health Check Attempt ${i}/24"
 
-                        int status = bat(
+                        def status = bat(
                             script: 'curl --silent --fail http://localhost:8082/actuator/health',
                             returnStatus: true
                         )
 
-                        if (status == 0) {
+                        if(status == 0){
                             healthy = true
                             break
                         }
 
-                        sleep(time: 5, unit: 'SECONDS')
+                        sleep(time:5, unit:'SECONDS')
                     }
 
-                    bat 'docker logs product-service'
                     bat 'docker ps'
+                    bat 'docker logs product-service'
 
-                    if (!healthy) {
-                        error("Application failed to become healthy.")
+                    if(!healthy){
+                        error("Application failed health check.")
                     }
 
-                    echo "Application is UP!"
+                    echo "Application deployed successfully."
                 }
             }
         }
+
     }
 
     post {
 
         success {
-            echo "========================================="
-            echo "BUILD SUCCESSFUL!"
-            echo "========================================="
-            echo "SonarQube Analysis Completed"
+
+            echo "==========================================="
+            echo "BUILD SUCCESSFUL"
+            echo "==========================================="
             echo "Application : http://localhost:8082"
             echo "Swagger UI  : http://localhost:8082/swagger-ui/index.html"
-            echo "Health      : http://localhost:8082/actuator/health"
+            echo "Health API  : http://localhost:8082/actuator/health"
             echo "SonarQube   : http://localhost:9000/dashboard?id=product-service"
-            echo "========================================="
+            echo "==========================================="
+
         }
 
         failure {
-            echo "========================================="
-            echo "BUILD FAILED!"
-            echo "========================================="
+
+            echo "==========================================="
+            echo "BUILD FAILED"
+            echo "==========================================="
 
             bat 'docker ps -a'
             bat 'docker logs product-service'
+
         }
 
         always {
