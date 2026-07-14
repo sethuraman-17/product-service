@@ -90,7 +90,7 @@ pipeline {
                 bat '''
                 if not exist reports mkdir reports
                 trivy image --severity HIGH,CRITICAL --format table -o reports\trivy-report.txt %IMAGE_NAME%
-                type reports\trivy-report.txt
+                type reports/trivy-report.txt
                 '''
             }
         }
