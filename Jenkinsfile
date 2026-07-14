@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         IMAGE_NAME = "product-service:v1"
-        CONTAINER_NAME = "product-service"
+        DOCKER_IMAGE = "sethu1705/product-service:v1"
     }
 
     stages {
@@ -35,38 +35,16 @@ pipeline {
                 echo =====================================
                 echo Verifying Docker Installation
                 echo =====================================
-
                 docker --version
-
-                echo.
-                echo =====================================
-                echo Available Docker Images
-                echo =====================================
-
                 docker images
-
-                echo.
-                echo =====================================
-                echo Docker Hub Login Status
-                echo =====================================
-
                 docker info
-
-                echo.
-                echo Docker Verification Completed Successfully
                 '''
             }
         }
 
         stage('Build Application') {
             steps {
-                bat '''
-                echo =====================================
-                echo Building Spring Boot Application
-                echo =====================================
-
-                mvn clean package -DskipTests
-                '''
+                bat 'mvn clean package -DskipTests'
             }
         }
 
@@ -74,10 +52,6 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'sonarqube-auth-token', variable: 'SONAR_TOKEN')]) {
                     bat '''
-                    echo =====================================
-                    echo Running SonarQube Analysis
-                    echo =====================================
-
                     mvn sonar:sonar ^
                     -Dsonar.host.url=http://localhost:9000 ^
                     -Dsonar.login=%SONAR_TOKEN% ^
@@ -90,13 +64,24 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                bat '''
-                echo =====================================
-                echo Building Docker Image
-                echo =====================================
+                bat 'docker build -t %IMAGE_NAME% .'
+            }
+        }
 
-                docker build -t %IMAGE_NAME% .
-                '''
+        stage('Push Docker Image to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    bat '''
+                    docker login -u %DOCKER_USER% -p %DOCKER_PASS%
+                    docker tag %IMAGE_NAME% %DOCKER_IMAGE%
+                    docker push %DOCKER_IMAGE%
+                    docker logout
+                    '''
+                }
             }
         }
 
@@ -104,92 +89,28 @@ pipeline {
             steps {
                 bat '''
                 if not exist reports mkdir reports
-
-                echo =====================================
-                echo Running Trivy Scan
-                echo =====================================
-
-                trivy image ^
-                --severity HIGH,CRITICAL ^
-                --format table ^
-                -o reports\\trivy-report.txt ^
-                %IMAGE_NAME%
-
-                echo.
-                echo =====================================
-                echo Trivy Report
-                echo =====================================
-
-                type reports\\trivy-report.txt
-
-                echo.
-                echo Trivy Scan Completed Successfully
+                trivy image --severity HIGH,CRITICAL --format table -o reports\trivy-report.txt %IMAGE_NAME%
+                type reports\trivy-report.txt
                 '''
             }
         }
 
-        stage('Remove Old Container') {
+        stage('Deploy to Kubernetes') {
             steps {
                 bat '''
-                @echo off
-                docker stop %CONTAINER_NAME% 2>nul
-                docker rm %CONTAINER_NAME% 2>nul
-                exit /b 0
+                kubectl set image deployment/product-service product-service=%DOCKER_IMAGE%
+                kubectl rollout status deployment/product-service
                 '''
             }
         }
 
-        stage('Deploy Container') {
+        stage('Verify Kubernetes Deployment') {
             steps {
                 bat '''
-                @echo off
-
-                docker run -d ^
-                --name %CONTAINER_NAME% ^
-                -p 8082:8081 ^
-                -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5434/product_db ^
-                -e SPRING_DATASOURCE_USERNAME=postgres ^
-                -e SPRING_DATASOURCE_PASSWORD=2163 ^
-                %IMAGE_NAME%
+                kubectl get deployments
+                kubectl get pods
+                kubectl get services
                 '''
-            }
-        }
-
-        stage('Verify Deployment') {
-            steps {
-                script {
-                    echo "Waiting 30 seconds for application startup..."
-                    sleep(time:30, unit:'SECONDS')
-
-                    boolean healthy = false
-
-                    for(int i=1;i<=60;i++){
-                        echo "Health Check Attempt ${i}/60"
-
-                        int status = bat(
-                            script:'curl --silent --fail http://localhost:8082/actuator/health',
-                            returnStatus:true
-                        )
-
-                        if(status==0){
-                            healthy=true
-                            break
-                        }
-
-                        sleep(time:5, unit:'SECONDS')
-                    }
-
-                    bat 'docker ps'
-                    bat 'docker logs product-service'
-
-                    if(!healthy){
-                        error("Application failed health check.")
-                    }
-
-                    echo "====================================="
-                    echo "Application Deployed Successfully"
-                    echo "====================================="
-                }
             }
         }
     }
@@ -198,12 +119,10 @@ pipeline {
         success {
             echo "BUILD SUCCESSFUL"
         }
-
         failure {
             bat 'docker ps -a'
-            bat 'docker logs product-service'
+            bat 'kubectl get pods'
         }
-
         always {
             archiveArtifacts artifacts: 'reports/*', fingerprint: true
             cleanWs()
