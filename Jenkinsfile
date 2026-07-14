@@ -32,9 +32,9 @@ pipeline {
         stage('Build Application') {
             steps {
                 bat '''
-                echo ================================
+                echo =====================================
                 echo Building Spring Boot Application
-                echo ================================
+                echo =====================================
 
                 mvn clean package -DskipTests
                 '''
@@ -46,9 +46,9 @@ pipeline {
                 withCredentials([string(credentialsId: 'sonarqube-auth-token', variable: 'SONAR_TOKEN')]) {
 
                     bat '''
-                    echo ================================
+                    echo =====================================
                     echo Running SonarQube Analysis
-                    echo ================================
+                    echo =====================================
 
                     mvn sonar:sonar ^
                     -Dsonar.host.url=http://localhost:9000 ^
@@ -62,10 +62,11 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
+
                 bat '''
-                echo ================================
+                echo =====================================
                 echo Building Docker Image
-                echo ================================
+                echo =====================================
 
                 docker build -t %IMAGE_NAME% .
                 '''
@@ -78,9 +79,9 @@ pipeline {
                 bat '''
                 if not exist reports mkdir reports
 
-                echo ================================
-                echo Running Trivy Security Scan
-                echo ================================
+                echo =====================================
+                echo Running Trivy Scan
+                echo =====================================
 
                 trivy image ^
                 --severity HIGH,CRITICAL ^
@@ -89,23 +90,21 @@ pipeline {
                 %IMAGE_NAME%
 
                 echo.
-                echo ================================
+                echo =====================================
                 echo Trivy Report
-                echo ================================
+                echo =====================================
 
                 type reports\\trivy-report.txt
 
                 echo.
-                echo ================================
                 echo Trivy Scan Completed Successfully
-                echo Report Generated Successfully
-                echo ================================
                 '''
             }
         }
 
         stage('Remove Old Container') {
             steps {
+
                 bat '''
                 @echo off
 
@@ -119,6 +118,7 @@ pipeline {
 
         stage('Deploy Container') {
             steps {
+
                 bat '''
                 @echo off
 
@@ -135,35 +135,42 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
+
                 script {
+
+                    echo "Waiting 30 seconds for application startup..."
+
+                    sleep(time:30, unit:'SECONDS')
 
                     boolean healthy = false
 
-                    for (int i = 1; i <= 24; i++) {
+                    for(int i=1;i<=60;i++){
 
-                        echo "Health Check Attempt ${i}/24"
+                        echo "Health Check Attempt ${i}/60"
 
                         int status = bat(
-                            script: 'curl --silent --fail http://localhost:8082/actuator/health',
-                            returnStatus: true
+                            script:'curl --silent --fail http://localhost:8082/actuator/health',
+                            returnStatus:true
                         )
 
-                        if (status == 0) {
-                            healthy = true
+                        if(status==0){
+                            healthy=true
                             break
                         }
 
-                        sleep(time: 5, unit: 'SECONDS')
+                        sleep(time:5, unit:'SECONDS')
                     }
 
                     bat 'docker ps'
                     bat 'docker logs product-service'
 
-                    if (!healthy) {
+                    if(!healthy){
                         error("Application failed health check.")
                     }
 
-                    echo "Application deployed successfully."
+                    echo "====================================="
+                    echo "Application Deployed Successfully"
+                    echo "====================================="
                 }
             }
         }
@@ -174,26 +181,22 @@ pipeline {
 
         success {
 
-            echo "==========================================="
+            echo "============================================="
             echo "BUILD SUCCESSFUL"
-            echo "==========================================="
-            echo "Maven Build Completed"
-            echo "SonarQube Analysis Completed"
-            echo "Docker Image Built"
-            echo "Trivy Scan Completed"
-            echo "Docker Container Deployed"
-            echo "Application : http://localhost:8082"
-            echo "Swagger UI  : http://localhost:8082/swagger-ui/index.html"
-            echo "Health API  : http://localhost:8082/actuator/health"
-            echo "SonarQube   : http://localhost:9000/dashboard?id=product-service"
-            echo "==========================================="
+            echo "============================================="
+            echo "Application URL : http://localhost:8082"
+            echo "Swagger UI      : http://localhost:8082/swagger-ui/index.html"
+            echo "Health API      : http://localhost:8082/actuator/health"
+            echo "Prometheus      : http://localhost:8082/actuator/prometheus"
+            echo "SonarQube       : http://localhost:9000/dashboard?id=product-service"
+            echo "============================================="
         }
 
         failure {
 
-            echo "==========================================="
+            echo "============================================="
             echo "BUILD FAILED"
-            echo "==========================================="
+            echo "============================================="
 
             bat 'docker ps -a'
             bat 'docker logs product-service'
