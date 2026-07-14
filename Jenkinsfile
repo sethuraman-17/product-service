@@ -29,6 +29,35 @@ pipeline {
             }
         }
 
+        stage('Verify Docker Login') {
+            steps {
+                bat '''
+                echo =====================================
+                echo Verifying Docker Installation
+                echo =====================================
+
+                docker --version
+
+                echo.
+                echo =====================================
+                echo Available Docker Images
+                echo =====================================
+
+                docker images
+
+                echo.
+                echo =====================================
+                echo Docker Hub Login Status
+                echo =====================================
+
+                docker info
+
+                echo.
+                echo Docker Verification Completed Successfully
+                '''
+            }
+        }
+
         stage('Build Application') {
             steps {
                 bat '''
@@ -44,7 +73,6 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'sonarqube-auth-token', variable: 'SONAR_TOKEN')]) {
-
                     bat '''
                     echo =====================================
                     echo Running SonarQube Analysis
@@ -62,7 +90,6 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-
                 bat '''
                 echo =====================================
                 echo Building Docker Image
@@ -75,7 +102,6 @@ pipeline {
 
         stage('Trivy Security Scan') {
             steps {
-
                 bat '''
                 if not exist reports mkdir reports
 
@@ -104,13 +130,10 @@ pipeline {
 
         stage('Remove Old Container') {
             steps {
-
                 bat '''
                 @echo off
-
                 docker stop %CONTAINER_NAME% 2>nul
                 docker rm %CONTAINER_NAME% 2>nul
-
                 exit /b 0
                 '''
             }
@@ -118,7 +141,6 @@ pipeline {
 
         stage('Deploy Container') {
             steps {
-
                 bat '''
                 @echo off
 
@@ -135,17 +157,13 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-
                 script {
-
                     echo "Waiting 30 seconds for application startup..."
-
                     sleep(time:30, unit:'SECONDS')
 
                     boolean healthy = false
 
                     for(int i=1;i<=60;i++){
-
                         echo "Health Check Attempt ${i}/60"
 
                         int status = bat(
@@ -174,38 +192,20 @@ pipeline {
                 }
             }
         }
-
     }
 
     post {
-
         success {
-
-            echo "============================================="
             echo "BUILD SUCCESSFUL"
-            echo "============================================="
-            echo "Application URL : http://localhost:8082"
-            echo "Swagger UI      : http://localhost:8082/swagger-ui/index.html"
-            echo "Health API      : http://localhost:8082/actuator/health"
-            echo "Prometheus      : http://localhost:8082/actuator/prometheus"
-            echo "SonarQube       : http://localhost:9000/dashboard?id=product-service"
-            echo "============================================="
         }
 
         failure {
-
-            echo "============================================="
-            echo "BUILD FAILED"
-            echo "============================================="
-
             bat 'docker ps -a'
             bat 'docker logs product-service'
         }
 
         always {
-
             archiveArtifacts artifacts: 'reports/*', fingerprint: true
-
             cleanWs()
         }
     }
