@@ -25,6 +25,7 @@ pipeline {
                 bat 'java -version'
                 bat 'mvn -version'
                 bat 'docker --version'
+                bat 'trivy --version'
             }
         }
 
@@ -56,7 +57,37 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
+                echo ================================
+                echo Building Docker Image...
+                echo ================================
+
                 docker build -t %IMAGE_NAME% .
+                '''
+            }
+        }
+
+        stage('Trivy Security Scan') {
+            steps {
+
+                bat '''
+                if not exist reports mkdir reports
+
+                echo ================================
+                echo Running Trivy Security Scan...
+                echo ================================
+
+                trivy image ^
+                --severity HIGH,CRITICAL ^
+                --format table ^
+                -o reports\\trivy-report.txt ^
+                %IMAGE_NAME%
+
+                type reports\\trivy-report.txt
+
+                trivy image ^
+                --severity HIGH,CRITICAL ^
+                --exit-code 1 ^
+                %IMAGE_NAME%
                 '''
             }
         }
@@ -65,8 +96,10 @@ pipeline {
             steps {
                 bat '''
                 @echo off
+
                 docker stop %CONTAINER_NAME% 2>nul
                 docker rm %CONTAINER_NAME% 2>nul
+
                 exit /b 0
                 '''
             }
@@ -74,6 +107,7 @@ pipeline {
 
         stage('Deploy Container') {
             steps {
+
                 bat '''
                 @echo off
 
@@ -89,7 +123,9 @@ pipeline {
         }
 
         stage('Verify Deployment') {
+
             steps {
+
                 script {
 
                     boolean healthy = false
@@ -108,7 +144,7 @@ pipeline {
                             break
                         }
 
-                        sleep(time: 5, unit: 'SECONDS')
+                        sleep(time:5, unit:'SECONDS')
                     }
 
                     bat 'docker ps'
@@ -133,6 +169,8 @@ pipeline {
             echo "BUILD SUCCESSFUL"
             echo "==========================================="
             echo "SonarQube Analysis Completed"
+            echo "Trivy Scan Completed"
+            echo "Docker Image Built Successfully"
             echo "Application : http://localhost:8082"
             echo "Swagger UI  : http://localhost:8082/swagger-ui/index.html"
             echo "Health API  : http://localhost:8082/actuator/health"
@@ -149,10 +187,12 @@ pipeline {
 
             bat 'docker ps -a'
             bat 'docker logs product-service'
-
         }
 
         always {
+
+            archiveArtifacts artifacts: 'reports/*', fingerprint: true
+
             cleanWs()
         }
     }
