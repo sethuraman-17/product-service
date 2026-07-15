@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
       - name: product-service
-        image: sethu1705/product-service:v1
+        image: sethu1705/product-service:1
         imagePullPolicy: Always
 
         ports:
