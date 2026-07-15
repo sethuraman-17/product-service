@@ -7,8 +7,8 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = "product-service:v1"
-        DOCKER_IMAGE = "sethu1705/product-service:v1"
+        IMAGE_NAME = "product-service:${BUILD_NUMBER}"
+        DOCKER_IMAGE = "sethu1705/product-service:${BUILD_NUMBER}"
     }
 
     stages {
