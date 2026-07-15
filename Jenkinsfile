@@ -89,8 +89,23 @@ pipeline {
             steps {
                 bat '''
                 if not exist reports mkdir reports
-                trivy image --severity HIGH,CRITICAL --format table -o reports\trivy-report.txt %IMAGE_NAME%
-                type reports/trivy-report.txt
+
+                echo =====================================
+                echo Running Trivy Security Scan
+                echo =====================================
+
+                trivy image ^
+                --severity HIGH,CRITICAL ^
+                --format table ^
+                -o reports/trivy-report.txt ^
+                %IMAGE_NAME%
+
+                echo.
+                echo =====================================
+                echo Trivy Report
+                echo =====================================
+
+                type reports\\trivy-report.txt
                 '''
             }
         }
@@ -98,7 +113,17 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 bat '''
-                kubectl set image deployment/product-service product-service=%DOCKER_IMAGE%
+                set KUBECONFIG=C:\\Users\\Admin\\.kube\\config
+
+                echo =====================================
+                echo Deploying to Kubernetes
+                echo =====================================
+
+                kubectl config current-context
+
+                kubectl set image deployment/product-service ^
+                product-service=%DOCKER_IMAGE%
+
                 kubectl rollout status deployment/product-service
                 '''
             }
@@ -107,9 +132,21 @@ pipeline {
         stage('Verify Kubernetes Deployment') {
             steps {
                 bat '''
+                set KUBECONFIG=C:\\Users\\Admin\\.kube\\config
+
+                echo =====================================
+                echo Kubernetes Deployment Status
+                echo =====================================
+
                 kubectl get deployments
+
+                echo.
+
                 kubectl get pods
-                kubectl get services
+
+                echo.
+
+                kubectl get svc
                 '''
             }
         }
@@ -119,10 +156,17 @@ pipeline {
         success {
             echo "BUILD SUCCESSFUL"
         }
+
         failure {
+
             bat 'docker ps -a'
-            bat 'kubectl get pods'
+
+            bat '''
+            set KUBECONFIG=C:\\Users\\Admin\\.kube\\config
+            kubectl get pods
+            '''
         }
+
         always {
             archiveArtifacts artifacts: 'reports/*', fingerprint: true
             cleanWs()
