@@ -101,6 +101,7 @@ pipeline {
                 %IMAGE_NAME%
 
                 echo.
+
                 echo =====================================
                 echo Trivy Report
                 echo =====================================
@@ -112,20 +113,47 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                bat '''
-                set KUBECONFIG=C:\\Users\\Admin\\.kube\\config
+                script {
 
-                echo =====================================
-                echo Deploying to Kubernetes
-                echo =====================================
+                    try {
 
-                kubectl config current-context
+                        bat '''
+                        set KUBECONFIG=C:\\Users\\Admin\\.kube\\config
 
-                kubectl set image deployment/product-service ^
-                product-service=%DOCKER_IMAGE%
+                        echo =====================================
+                        echo Deploying Latest Docker Image
+                        echo =====================================
 
-                kubectl rollout status deployment/product-service
-                '''
+                        kubectl set image deployment/product-service ^
+                        product-service=%DOCKER_IMAGE%
+
+                        kubectl rollout status deployment/product-service --timeout=180s
+                        '''
+
+                        echo "====================================="
+                        echo "Deployment Successful"
+                        echo "====================================="
+
+                    } catch (Exception e) {
+
+                        echo "====================================="
+                        echo "Deployment Failed"
+                        echo "Rolling Back..."
+                        echo "====================================="
+
+                        bat '''
+                        set KUBECONFIG=C:\\Users\\Admin\\.kube\\config
+
+                        kubectl rollout undo deployment/product-service
+
+                        kubectl rollout status deployment/product-service --timeout=180s
+                        '''
+
+                        error("Deployment failed. Previous version has been restored automatically.")
+
+                    }
+
+                }
             }
         }
 
@@ -153,8 +181,11 @@ pipeline {
     }
 
     post {
+
         success {
+            echo "====================================="
             echo "BUILD SUCCESSFUL"
+            echo "====================================="
         }
 
         failure {
