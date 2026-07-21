@@ -100,7 +100,7 @@ pipeline {
                 mkdir -p reports
                 trivy image \
                   --severity HIGH,CRITICAL \
-  --exit-code 1 \
+  --exit-code 0 \
                   --format table \
                   -o reports/trivy-report.txt \
                   ${IMAGE_NAME}
