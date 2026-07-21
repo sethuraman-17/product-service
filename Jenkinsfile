@@ -1,6 +1,13 @@
 pipeline {
     agent any
 
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')
+    }
+
     tools {
         jdk 'JDK21'
         maven 'Maven'
@@ -9,7 +16,8 @@ pipeline {
     environment {
         IMAGE_NAME   = "product-service:${BUILD_NUMBER}"
         DOCKER_IMAGE = "sethu1705/product-service:${BUILD_NUMBER}"
-        KUBECONFIG   = "C:\\Users\\Admin\\.kube\\config"
+        KUBECONFIG   = "/var/lib/jenkins/.kube/config"
+        SONAR_HOST   = "http://localhost:9000"
     }
 
     stages {
@@ -22,15 +30,12 @@ pipeline {
 
         stage('Verify Tools') {
             steps {
-                bat '''
-                echo =====================================
-                echo VERIFYING TOOLS
-                echo =====================================
-
-                echo JAVA_HOME=%JAVA_HOME%
-
+                sh '''
+                set -e
+                echo "===== VERIFY TOOLS ====="
                 java -version
                 mvn -version
+                git --version
                 docker --version
                 trivy --version
                 kubectl version --client
@@ -40,11 +45,8 @@ pipeline {
 
         stage('Verify Docker') {
             steps {
-                bat '''
-                echo =====================================
-                echo VERIFYING DOCKER
-                echo =====================================
-
+                sh '''
+                set -e
                 docker info
                 docker images
                 '''
@@ -53,23 +55,19 @@ pipeline {
 
         stage('Build Application') {
             steps {
-                bat 'mvn clean package -DskipTests'
+                sh 'mvn clean package -DskipTests'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'sonarqube-auth-token',
-                    variable: 'SONAR_TOKEN')
-                ]) {
-
-                    bat '''
-                    mvn sonar:sonar ^
-                    -Dsonar.host.url=http://localhost:9000 ^
-                    -Dsonar.login=%SONAR_TOKEN% ^
-                    -Dsonar.projectKey=product-service ^
-                    -Dsonar.projectName="Product Service"
+                withCredentials([string(credentialsId: 'sonarqube-auth-token', variable: 'SONAR_TOKEN')]) {
+                    sh '''
+                    mvn sonar:sonar \
+                      -Dsonar.host.url=$SONAR_HOST \
+                      -Dsonar.login=$SONAR_TOKEN \
+                      -Dsonar.projectKey=product-service \
+                      -Dsonar.projectName="Product Service"
                     '''
                 }
             }
@@ -77,30 +75,19 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                bat '''
-                docker build -t %IMAGE_NAME% .
-                '''
+                sh 'docker build -t ${IMAGE_NAME} .'
             }
         }
 
         stage('Push Docker Image') {
             steps {
-
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-
-                    bat '''
-                    echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
-
-                    docker tag %IMAGE_NAME% %DOCKER_IMAGE%
-
-                    docker push %DOCKER_IMAGE%
-
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    docker tag ${IMAGE_NAME} ${DOCKER_IMAGE}
+                    docker push ${DOCKER_IMAGE}
                     docker logout
                     '''
                 }
@@ -109,173 +96,117 @@ pipeline {
 
         stage('Trivy Scan') {
             steps {
-
-                bat '''
-                if not exist reports mkdir reports
-
-                echo =====================================
-                echo TRIVY SECURITY SCAN
-                echo =====================================
-
-                trivy image ^
-                --severity HIGH,CRITICAL ^
-                --format table ^
-                -o reports\\trivy-report.txt ^
-                %IMAGE_NAME%
-
-                type reports\\trivy-report.txt
+                sh '''
+                mkdir -p reports
+                trivy image \
+                  --severity HIGH,CRITICAL \
+  --exit-code 1 \
+                  --format table \
+                  -o reports/trivy-report.txt \
+                  ${IMAGE_NAME}
+                cat reports/trivy-report.txt
                 '''
             }
         }
 
         stage('Deploy to Kubernetes') {
-
             steps {
-
                 script {
-
                     try {
+                        sh '''
+                        export KUBECONFIG=${KUBECONFIG}
 
-                        bat '''
-                        set KUBECONFIG=%KUBECONFIG%
-
-                        echo =====================================
-                        echo DEPLOYING IMAGE
-                        echo =====================================
-
-                        kubectl set image deployment/product-service ^
-                        product-service=%DOCKER_IMAGE%
-
-                        echo.
-
-                        echo Waiting for rollout...
+                        kubectl set image deployment/product-service \
+                        product-service=${DOCKER_IMAGE}
 
                         kubectl rollout status deployment/product-service --timeout=600s
 
-                        echo.
+                        kubectl rollout history deployment/product-service
 
-                        echo =====================================
-                        echo VERIFY DEPLOYMENT
-                        echo =====================================
+                        echo
 
-                        kubectl get deployment product-service
+                        kubectl get rs
+
+                        echo
 
                         kubectl get pods -o wide
 
-                        echo.
+                        kubectl get deployment product-service
 
-                        kubectl get deployment product-service -o=jsonpath="{.spec.template.spec.containers[0].image}"
+                        kubectl get deployment product-service -o wide
 
-                        echo.
+                        echo
+
+                        kubectl get deployment product-service \
+                        -o=jsonpath='{.spec.template.spec.containers[0].image}'
+
+                        echo
                         '''
-
                         echo "Deployment Successful"
-
-                    }
-
-                    catch(Exception ex) {
-
+                    } catch(Exception ex) {
                         echo "Deployment Failed"
 
-                        bat '''
-                        set KUBECONFIG=%KUBECONFIG%
+                        sh '''
+                        export KUBECONFIG=${KUBECONFIG}
 
-                        echo =====================================
-                        echo DEPLOYMENT DETAILS
-                        echo =====================================
-
-                        kubectl describe deployment product-service
-
-                        echo.
-
-                        kubectl get pods
-
-                        echo.
-
-                        kubectl describe pods
-
-                        echo.
-
-                        kubectl logs deployment/product-service --tail=100
-                        '''
-
-                        echo "Rolling Back..."
-
-                        bat '''
-                        set KUBECONFIG=%KUBECONFIG%
+                        kubectl describe deployment product-service || true
+                        kubectl get pods || true
+                        kubectl describe pods || true
+                        kubectl logs deployment/product-service --tail=100 || true
 
                         kubectl rollout undo deployment/product-service
-
                         kubectl rollout status deployment/product-service --timeout=600s
                         '''
 
-                        error("Deployment Failed. Rollback completed.")
+                        error("Deployment failed. Rollback completed.")
                     }
-
                 }
             }
         }
 
         stage('Verify Kubernetes Deployment') {
-
             steps {
-
-                bat '''
-                set KUBECONFIG=%KUBECONFIG%
-
-                echo =====================================
-                echo DEPLOYMENT STATUS
-                echo =====================================
+                sh '''
+                export KUBECONFIG=${KUBECONFIG}
 
                 kubectl get deployments
-
-                echo.
-
                 kubectl get pods
-
-                echo.
-
                 kubectl get svc
-
-                echo.
-
                 kubectl get deployment product-service -o wide
+
+                echo
+
+                kubectl get deployment product-service \
+                -o=jsonpath='{.spec.template.spec.containers[0].image}'
+
+                echo
                 '''
             }
         }
-
     }
 
     post {
-
         success {
-
-            echo "====================================="
-            echo "PIPELINE COMPLETED SUCCESSFULLY"
-            echo "====================================="
+            echo '====================================='
+            echo 'PIPELINE COMPLETED SUCCESSFULLY'
+            echo '====================================='
         }
 
         failure {
+            echo '====================================='
+            echo 'PIPELINE FAILED'
+            echo '====================================='
 
-            echo "====================================="
-            echo "PIPELINE FAILED"
-            echo "====================================="
-
-            bat '''
-            docker ps -a
-
-            set KUBECONFIG=%KUBECONFIG%
-
-            kubectl get pods
-
-            kubectl describe deployment product-service
+            sh '''
+            docker ps -a || true
+            export KUBECONFIG=${KUBECONFIG}
+            kubectl get pods || true
+            kubectl describe deployment product-service || true
             '''
         }
 
         always {
-
-            archiveArtifacts artifacts: 'reports/*', fingerprint: true
-
+            archiveArtifacts artifacts: 'reports/*', fingerprint: true, allowEmptyArchive: true
             cleanWs()
         }
     }
